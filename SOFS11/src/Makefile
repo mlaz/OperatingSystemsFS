@@ -7,6 +7,7 @@ all:
 			make -C mkfs11 all
 			make -C testifuncs11 all
 			make -C mount11 all
+			make -C fsck11 all
 
 clean:
 			make -C debugging clean
@@ -17,3 +18,4 @@ clean:
 			make -C mkfs11 clean
 			make -C testifuncs11 clean
 			make -C mount11 clean
+			make -C fsck11 clean

@@ -1,3 +1,11 @@
+#include "sofs_buffercache.h"
+#include "sofs_basicoper.h"
+#include "sofs_const.h"
+#include "sofs_superblock.h"
+#include "sofs_basicconsist.h"
+
+/* #include <errno.h> */
+
 /* Status Constants */
 
 /** \brief Invalid Magic number */
@@ -83,8 +91,22 @@
 #define EDZLLLOOP 555
 
 /** \brief DZone linked list broken **/
-#define EEDZLLBROKEN 556
+#define EDZLLBROKEN 556
 
+/** \brief Inconsistent DZone linked list tail */
+#define EDZBADTAIL 557
+
+/** \brief Inconsistent DZone linked list head */
+#define EDZBADHEAD 558
+
+/** \brief Inconsistent DZone linked list reference */
+#define EDZLLBADREF 559
+
+/** \brief Inconsistent number of (free clean) data clusters on retrieval cache */
+#define ERMISSCLT 560
+
+/** \brief Inconsistent number of free data clusters */
+#define EFREECLT 561
 
 /* Methods */
 
@@ -94,7 +116,7 @@ int fsckCheckSuperBlockHeader (SOSuperBlock *p_sb);
 
 int fsckCheckSBInodeMetaData (SOSuperBlock *p_sb);
 
-int fsckCheckDZoneMetaData (SOSuperBlock *p_sb, uint32_t nclusttotal);
+int fsckCheckDZoneMetaData (SOSuperBlock *p_sb, uint32_t ntotal);
 
 
 /* Inode Related Tasks */

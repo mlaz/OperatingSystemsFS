@@ -1,25 +1,30 @@
-#include "fsck_sofs11.h"
 
-#include "sofs_buffercache.h"
-#include "sofs_const.h"
-#include "sofs_superblock.h"
 
+#include <libgen.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <errno.h>
+
+#include "sofs_const.h"
+#include "sofs_buffercache.h"
+#include "sofs_superblock.h"
+#include "sofs_basicoper.h"
+#include "fsck_sofs11.h"
 
 static void printUsage ();
-static void processError (uint32_t error);
+static void processError (int error);
 
 int
 main (int argc, char **argv)
 {
-  uint32_t nclusttotal;
   struct stat st;
   SOSuperBlock *p_sb;
-
+  int status, error = 0;
+  uint32_t ntotal;       /* total number of blocks */
   if (argc != 2)
     {
       printUsage();
@@ -36,19 +41,9 @@ main (int argc, char **argv)
   /* Check whether the file size is a multiple of BLOCK_SIZE */
   if (st.st_size % BLOCK_SIZE != 0)
     {
-      fprintf (stderr, "%s: Bad size of support file.\n", basename (argv[0]));
+      fprintf (stderr, "%s: Bad size of support file.\n", basename(argv[0]) );
       return EXIT_FAILURE;
     }
-
-  /*
-   * Computing the number of dataclusters for the storage device
-   *
-   * nblocktotal = (dev_size / BLOCK_SIZE)
-   * nclusttotal = nblocktotal / BPC
-   **/
-  nclustotal = (uint32_t) ( (st.st_size / BLOCK_SIZE) / BLOCKS_PER_CLUSTER );
-
-  prinf("Device size (in clusters): %d.\n", nclustotal);
 
   /* Opening a buffered communication channel with the storage device */
   if ((status = soOpenBufferCache (argv[optind], BUF)) != 0)
@@ -68,71 +63,83 @@ main (int argc, char **argv)
 
   /* SB */
   /* Checking super block header integrity */
-  printf("Checking super block header integrity...\n");
-  if ( (fsckCheckSuperBlockHeader (p_sb)) != 0 )
+  printf("Checking super block header integrity...\t\t");
+  if ( (error = fsckCheckSuperBlockHeader (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* Checking super block inode table metadata integrity */
-  printf("Checking super block inode table metadata integrity...\n");
-  if ( (fsckCheckSBInodeMetaData (p_sb)) != 0 )
+  printf("Checking super block inode table metadata integrity...\t");
+  if ( (error = fsckCheckSBInodeMetaData (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* Checking super block data zone metadata integrity */
-  printf("Checking super block data zone metadata integrity...\n");
-  if ( (fsckCheckDZoneMetaData (p_sb, nclusttotal)) != 0 )
+  printf("Checking super block data zone metadata integrity...\t");
+
+  ntotal = st.st_size / BLOCK_SIZE;
+
+  if ( (error = fsckCheckDZoneMetaData (p_sb, ntotal)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* INODES */
   /* Checking inode table integrity */
-  printf("Checking inode table integrity...\n");
-  if ( (fsckCheckInodeTable (p_sb)) != 0 )
+  printf("Checking inode table integrity...\t\t\t");
+  if ( (error = fsckCheckInodeTable (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* Checking inode linked list integrity */
-  printf("Checking inode linked list integrity...\n");
-  if ( (fsckCheckInodeList (p_sb)) != 0 )
+  printf("Checking inode linked list integrity...\t\t\t");
+  if ( (error = fsckCheckInodeList (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* DATA ZONE */
   /* Checking cluster caches integrity */
-  printf("Checking cluster caches integrity...\n");
-  if ( (fsckCheckCltCaches (p_sb)) != 0 )
+  printf("Checking cluster caches integrity...\t\t\t");
+  if ( (error = fsckCheckCltCaches (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
+
   /* Checking data zone integrity */
-  printf("Checking data zone integrity...\n");
-  if ( (fsckCheckDataZone (p_sb)) != 0 )
+  printf("Checking data zone integrity...\t\t\t\t");
+  if ( (error = fsckCheckDataZone (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
   /* Checking cluster linked list integrity */
-  printf("Checking cluster linked list integrity...\n");
-  if ( (fsckCheckCltLList (p_sb)) != 0 )
+  printf("Checking cluster linked list integrity...\t\t");
+  if ( (error = fsckCheckCltLList (p_sb)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
     }
+  printf("[OK]\n");
 
-  printf("Passage 1 Done!\n");
+  printf("Passage 1 Done.\n");
   return EXIT_SUCCESS;
 }
 
@@ -141,8 +148,9 @@ static void printUsage ()
   printf("usage: fsck11 <volume_path>\n");
 }
 
-static void processError (uint32_t error)
+static void processError (int error)
 {
+  printf("[ERROR]\n");
   switch (-error)
     {
 
@@ -294,20 +302,50 @@ static void processError (uint32_t error)
         break;
       }
 
-    case EEDZLLBROKEN :
+    case EDZLLBROKEN :
       {
         printf("DZone linked list broken.\n");
         break;
       }
 
-    case EINVAL :
+    case EDZBADTAIL :
       {
-        printf("EINVAL \n");
+        printf("Inconsistent DZone linked list tail.\n");
         break;
       }
 
+    case EDZBADHEAD :
+      {
+        printf("Inconsistent DZone linked list head.\n");
+        break;
+      }
+
+    case EDZLLBADREF :
+      {
+        printf("Inconsistent DZone linked list reference.\n");
+        break;
+      }
+
+    case ERMISSCLT :
+      {
+        printf("Inconsistent number of (free clean) data clusters on retrieval cache.\n");
+        break;
+      }
+
+    case EFREECLT :
+      {
+        printf("Inconsistent number of free data clusters.\n");
+        break;
+      }
+
+    /* case EINVAL : */
+    /*   { */
+    /*     printf("EINVAL \n"); */
+    /*     break; */
+    /*   } */
+
       /* TODO: BasicOper/Buffercache Related */
     default:
-      printf("Unknown error: %d \n", -error);
+      printf("Unknown error: %d \n", error);
     }
 }

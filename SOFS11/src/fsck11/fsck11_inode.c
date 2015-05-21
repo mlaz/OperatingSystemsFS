@@ -1,9 +1,12 @@
-#include "fsck_sofs11.h"
+#include <errno.h>
+#include <unistd.h>
+
 
 #include "sofs_buffercache.h"
 #include "sofs_const.h"
 #include "sofs_superblock.h"
 #include "sofs_inode.h"
+#include "fsck_sofs11.h"
 
 int fsckCheckInodeTable (SOSuperBlock *p_sb)
 {
@@ -11,7 +14,7 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
     return -EINVAL;
 
   SOInode *inode_block; //the block being processed
-  uint32_t curr_block; //current blocknumber within the inode table
+  uint32_t curr_block = 0; //current blocknumber within the inode table
   uint32_t curr_inode; //current inode within the block
   uint32_t tail_found = 0; //boolean: true = 1; false = 0;
   uint32_t head_found = 0; //boolean: true = 1; false = 0;
@@ -35,8 +38,8 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
             {
               freecount++;
 
-              /* Checking vD1.prev reference intgrity */
-              if (inode_block[curr_inode].vD1.prev == NULL_INODE)
+              /* Checking vD2.prev reference intgrity */
+              if (inode_block[curr_inode].vD2.prev == NULL_INODE)
                 {
                   /* Checking if it is the head of the list */
                   if (head_found)
@@ -48,13 +51,13 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
                   head_found = 1;
                 }
               /* Checking if is within its range */
-              else if ( inode_block[curr_inode].vD1.prev > (p_sb->itotal + 1) )
+              else if ( inode_block[curr_inode].vD2.prev > (p_sb->itotal + 1) )
                 {
                   return -EIBADINODEREF;
                 }
 
-              /* Checking vD2.next reference intgrity */
-              if (inode_block[curr_inode].vD2.next == NULL_INODE)
+              /* Checking vD1.next reference intgrity */
+              if (inode_block[curr_inode].vD1.next == NULL_INODE)
                 {
                   /* Checking if it is the tail of the list */
                   if (tail_found)
@@ -66,14 +69,16 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
                   tail_found = 1;
                 }
               /* Checking if is within its range */
-              else if ( inode_block[curr_inode].vD1.prev > (p_sb->itotal + 1) )
+              else if ( inode_block[curr_inode].vD1.next > (p_sb->itotal + 1) )
                 {
                   return -EIBADINODEREF;
                 }
 
             }
         }
+      curr_block++;
     }
+
 
   if (p_sb->ifree != freecount)
     return -EBADFREECOUNT;
@@ -90,6 +95,7 @@ int fsckCheckInodeList (SOSuperBlock *p_sb)
   uint32_t next_inode; //the next inode number to be processed
   uint32_t block_num;
   uint32_t inode_offset;
+  uint32_t status;
   SOInode *inode_block;
   uint32_t count = 0;
 
@@ -107,7 +113,7 @@ int fsckCheckInodeList (SOSuperBlock *p_sb)
       inode_block = soGetBlockInT();
 
       /* Checking if the inode is free */
-      if ( (inode_block[curr_inode].mode & INODE_FREE) != 0 )
+      if ( (inode_block[inode_offset].mode & INODE_FREE) == 0 )
         return -EILLNOTFREE;
 
       count++;
@@ -122,6 +128,9 @@ int fsckCheckInodeList (SOSuperBlock *p_sb)
       next_inode = inode_block[inode_offset].vD1.next;
     }
   while (next_inode != NULL_INODE);
+
+  if (p_sb->ifree != count)
+    return -EBADFREECOUNT;
 
   return FSCKOK;
 }

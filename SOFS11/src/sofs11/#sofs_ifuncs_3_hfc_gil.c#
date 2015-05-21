@@ -190,7 +190,7 @@ static int soHandleDirect (SOSuperBlock *p_sb, uint32_t nInode, SOInode *p_inode
   /** Operation validation **/
   /*if((op < GET) || (op > CLEAN))*/
   if(op != GET && op != ALLOC && op != FREE && op != FREE_CLEAN && op != CLEAN)
-    return -EINVAL;
+f    return -EINVAL;
 
   /** Direct Reference zone operations **/
   switch(op)
