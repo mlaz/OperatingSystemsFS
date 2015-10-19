@@ -55,7 +55,7 @@ int fsckCheckSBInodeMetaData (SOSuperBlock *p_sb)
     return -ESBITOTAL;
 
   /* Checking the total number of free inodes */
-  if ( p_sb->ifree >= (p_sb->itotal - 1) )
+  if ( p_sb->ifree > (p_sb->itotal - 1) )
     return -ESBIFREE;
 
   /* Checking if the ihead value is in range */

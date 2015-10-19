@@ -98,12 +98,16 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
         return status;
 
       /* Checking whether the cluster is free */
-      if ( (current_clt.prev == NULL_CLUSTER) ||
+      if ( (current_clt.prev == NULL_CLUSTER) &&
            (current_clt.next == NULL_CLUSTER) )
         {
           /* Checking whether the cluster is clean */
           if (current_clt.stat == NULL_INODE)
-              retriev_count++; //this cluster is supposed to belong in the retrieval cache
+            {
+              /* printf("logic_clt:%d\n", logic_clt); */
+              retriev_count++; //this cluster is supposed to belong in the
+                               //retrieval cache
+            }
         }
 
       else
@@ -126,7 +130,8 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
             {
               return -EDZLLBADREF;
             }
-
+          /* printf("here\n"); */
+          /* fflush(stdout); */
           if (current_clt.next == NULL_CLUSTER)
             {
               /* Checking if it is the tail of the list */
@@ -146,16 +151,21 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
         }
    }
 
+  fflush(stdout);
+
   /* TODO I could do better, I could check if the clt exists on the caches */
   /* Checking if the retrieval cache comprises the same */
   /* number counted free clean data clusters */
-  //printf ("retriev_count:%d", p_sb->dzone_retriev.cache_idx);
+  /* printf ("retriev_count:%d", retriev_count); */
   if (DZONE_CACHE_SIZE - p_sb->dzone_retriev.cache_idx != retriev_count)
     return -ERMISSCLT;
+
+  fflush(stdout);
 
   if ( p_sb->dzone_free != (retriev_count + llist_count + p_sb->dzone_insert.cache_idx) )
     return -EFREECLT;
 
+  fflush(stdout);
   return FSCKOK;
 }
 
@@ -171,15 +181,14 @@ int fsckCheckCltLList (SOSuperBlock *p_sb)
   uint32_t count = 0;
   uint32_t status;
 
-  next_cluster = NULL_CLUSTER;
-  prev_cluster = p_sb->dhead;
-  /* printf("DHEAD: %u\n", p_sb->dhead); */
-  /* printf("prev_cluster: %u\n", prev_cluster); */
+  next_cluster = p_sb->dhead;
+  prev_cluster = NULL_CLUSTER;
+  /* printf("DHEAD: %u\n", p_sb->dhead);         */
 
-  while (prev_cluster != NULL_CLUSTER)
+  while (next_cluster != NULL_CLUSTER)
     {
       /* Fetching the prev cluster */
-      phys_clt = prev_cluster * BLOCKS_PER_CLUSTER + p_sb->dzone_start;
+      phys_clt = next_cluster * BLOCKS_PER_CLUSTER + p_sb->dzone_start;
       if ( (status = soReadCacheCluster(phys_clt, &current_cluster)) != 0 )
         return status;
 
@@ -187,22 +196,14 @@ int fsckCheckCltLList (SOSuperBlock *p_sb)
 
       if (count > p_sb->ifree)
         return -EDZLLLOOP; //may we have a loop here?
-      /* printf("here\n"); */
-      /* fflush(stdout); */
-      /* printf("curr.prev: %u\n", current_cluster.prev); */
-      /* printf("curr.next: %u\n", current_cluster.next); */
-      /* printf("next_cluster: %u\n", next_cluster); */
-      /* printf("prev_cluster: %u\n", prev_cluster); */
-      /* printf("DHEAD: %u\n", p_sb->dhead); */
-      /* printf("NULL: %u\n", NULL_CLUSTER); */
 
       /* Checking for prev reference integrity */
       if (current_cluster.prev != prev_cluster)
-        return -EDZLLBROKEN;
+          return -EDZLLBROKEN;
 
-      next_cluster = prev_cluster;
-      prev_cluster = current_cluster.prev;
+      prev_cluster = next_cluster;
+      next_cluster = current_cluster.next;
     }
-
+  printf("count: %u\n", count);
   return FSCKOK;
 }
