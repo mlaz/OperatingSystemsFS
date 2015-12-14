@@ -108,6 +108,9 @@
 /** \brief Inconsistent number of free data clusters */
 #define EFREECLT 561
 
+/** \brief There is a loop on the directory tree */
+#define EDIRLOOP 562
+
 /** Cluster table bit masks **/
 /** \brief The cluster remains unchecked. **/
 #define CLT_UNCHECK 0x00
@@ -126,6 +129,23 @@
 
 /** \brief The cluster is not referencing the inode which references this cluster. **/
 #define CLT_IND_ERR 0x01 << 4
+
+/** Inode table bit masks **/
+/** \brief The cluster remains unchecked. **/
+#define INOD_UNCHECK 0x00
+
+/** \brief The cluster is free. **/
+#define INOD_FREE 0x01
+
+/** \brief The cluster is in the clean state. **/
+#define INOD_CLEAN 0x01 << 1
+
+/** \brief The Inode represents a directory and its "." reference is wrong **/
+#define INOD_REF_ERR 0x01 << 2
+
+/** \brief The Inode represents a directory and its ".." reference ponts to a
+    different parent **/
+#define INOD_PARENT_ERR 0x01 << 3
 
 /* Methods */
 
@@ -153,3 +173,7 @@ int fsckCheckDataZone (SOSuperBlock *p_sb, uint8_t *clt_table);
 int fsckCheckCltLList (SOSuperBlock *p_sb);
 
 int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table);
+
+/* Directory Related Tasks */
+
+int fsckCheckDirTree (SOSuperBlock *p_sb, uint8_t *inode_tbl);

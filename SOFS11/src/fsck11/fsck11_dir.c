@@ -1,6 +1,6 @@
 #include <errno.h>
 #include <unistd.h>
-
+#include <stdio.h>
 
 #include "sofs_buffercache.h"
 #include "sofs_const.h"
@@ -9,26 +9,27 @@
 #include "fsck_sofs11.h"
 #include "fsck11_stack.h"
 
-static int checkDirRec (FSCKStack *stack, uint32_t dzone_start);
+static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_tbl);
 
-int fsckCheckDirectoryTree (SOSuperBlock *p_sb)
+int fsckCheckDirTree (SOSuperBlock *p_sb, uint8_t *inode_tbl)
 {
   if (p_sb == NULL)
     return -EINVAL;
 
   int ret;
   FSCKStack *stack = newStack();
-  stackIn(stack ,0);
-  ret = checkDirRec(stack, p_sb->dzone_start);
+  stackIn(stack, 0, 0);
+  ret = checkDirRec(stack, p_sb->dzone_start, inode_tbl);
   destroyStack(stack);
   return ret;
 }
 
-static int checkDirRec (FSCKStack *stack, uint32_t dzone_start)
+static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_tbl)
 {
   if (isEmpty(stack))
     return FSCKOK;
 
+  uint32_t parent = getNextParent(stack);
   uint32_t current_inode = stackOut(stack);
   uint32_t block_num;
   uint32_t inode_offset;
@@ -40,6 +41,10 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start)
   SODataClust current_clt;
   int cnt;
 
+  if (inode_tbl[current_inode] != INOD_UNCHECK)
+    {
+      return EDIRLOOP;
+    }
   /* Reading the next inode from inode table */
   if ( (status = soConvertRefInT(current_inode, &block_num, &inode_offset)) < 0 )
     return status;
@@ -48,25 +53,43 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start)
     return status;
   inode_block = soGetBlockInT();
 
-  if ((inode_block[inode_offset].mode & INODE_DIR) != INODE_DIR)
-    return FSCKOK;
+  /* Checking whether it is a directory or not */
+  printf("current_inode:%d\n", current_inode);
+  printf("parent_inode:%d\n", parent);
 
-  /* this is a directory */
-  //check if the .. points to its parent
-  //check if . points to itself
+  if ((inode_block[inode_offset].mode & INODE_DIR) != INODE_DIR)
+    goto end;
 
   /* Getting the directory table */
   logic_clt = inode_block[inode_offset].d[0];
-  // check is the clustea is "problem free", check this out on the table
+
+  // check whether the cluster is "problem free", check this out on the table
   phys_clt = logic_clt * BLOCKS_PER_CLUSTER + dzone_start;
+  //printf("Phys:%d\n", phys_clt);
+  /* Checking if "." entru points to itself */
+  if (current_clt.info.de[0].nInode != current_inode) {
+    /* printf("curr-ninode:%d\n", current_clt.info.de[0].nInode); */
+    /* printf("parent:%d\n", current_clt.info.de[1].nInode); */
+    /* printf("curr_inode:%d\n", current_inode); */
+    inode_tbl[current_inode] |= INOD_REF_ERR;
+  }
+
+  /* Checking if the ".." entry points to its parent */
+  if (current_clt.info.de[1].nInode != parent)
+    inode_tbl[current_inode] |= INOD_PARENT_ERR;
 
   if ( (status = soReadCacheCluster(phys_clt, &current_clt)) != 0 )
     return status;
 
   for (cnt = 2; cnt < DPC; cnt++)
     {
-      if (current_clt.info.de[cnt].nInode != NULL_INODE)
-        stackIn(stack, current_clt.info.de[cnt].nInode);
+      if (current_clt.info.de[cnt].nInode != NULL_INODE) {
+        stackIn(stack, current_clt.info.de[cnt].nInode, current_inode);
+        /* printf("inode:%d\n", current_clt.info.de[cnt].nInode); */
+        /* printf("name: %s\n", current_clt.info.de[cnt].name); */
+      }
     }
-  return checkDirRec (stack, dzone_start);
+
+ end:
+  return checkDirRec (stack, dzone_start, inode_tbl);
 }

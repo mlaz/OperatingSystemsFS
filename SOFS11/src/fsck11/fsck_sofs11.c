@@ -26,6 +26,7 @@ main (int argc, char **argv)
   int status, error = 0;
   uint32_t ntotal;       /* total number of blocks */
   uint8_t *clt_table;
+  uint8_t *inode_table;
   if (argc != 2)
     {
       printUsage();
@@ -92,6 +93,9 @@ main (int argc, char **argv)
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  printf("Passage 1 Done.\n");
+
+  /** PASSAGE 2 **/
 
   /* INODES */
   /* Checking inode table integrity */
@@ -155,7 +159,7 @@ main (int argc, char **argv)
   for ( i = 0; i < p_sb->dzone_total; i++)
     {
       printf("clt[%d]:\n",i);
-      if(clt_table[i] == 0)
+      if (clt_table[i] == 0)
         printf("\tCLT_UNCHECK\n");
       if (clt_table[i] & CLT_FREE)
         printf("\tCLT_FREE\n");
@@ -167,9 +171,37 @@ main (int argc, char **argv)
         printf("\tCLT_REF_ERR\n");
       if (clt_table[i] & CLT_IND_ERR)
         printf("\tCLT_IND_ERR\n");
-      
+
     }
-  printf("Passage 1 Done.\n");
+
+  printf("Passage 2 Done.\n");
+
+  /** PASSAGE 3 **/
+  inode_table = (uint8_t*) calloc(p_sb->itotal, sizeof(uint8_t));
+  /* Checking directory tree integrity */
+  printf("Checking directory tree integrity...\t\t");
+  if ( (error = fsckCheckDirTree (p_sb, inode_table)) != FSCKOK )
+    {
+      processError(error);
+      return EXIT_SUCCESS;
+    }
+  printf("[OK]\n");
+
+    for ( i = 0; i < p_sb->itotal; i++)
+    {
+      printf("inod[%d]:\n",i);
+      if (inode_table[i]  == 0)
+        printf("\tINOD_UNCHECK\n");
+      if (inode_table[i] & INOD_FREE)
+        printf("\tINOD_FREE\n");
+      if (inode_table[i] & INOD_CLEAN)
+        printf ("\tINOD_CLEAN\n");
+      if (inode_table[i] & INOD_REF_ERR)
+        printf("\tINOD_REF_ERR\n");
+      if (inode_table[i] & INOD_PARENT_ERR)
+        printf("\tINOD_PARENT_ERR\n");
+
+    }
 
   return EXIT_SUCCESS;
 }
@@ -366,6 +398,13 @@ static void processError (int error)
     case EFREECLT :
       {
         printf("Inconsistent number of free data clusters.\n");
+        break;
+      }
+
+      
+    case EDIRLOOP :
+      {
+        printf("There is a loop on the directory tree.\n");
         break;
       }
 
