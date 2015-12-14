@@ -25,6 +25,7 @@ main (int argc, char **argv)
   SOSuperBlock *p_sb;
   int status, error = 0;
   uint32_t ntotal;       /* total number of blocks */
+  uint8_t *clt_table;
   if (argc != 2)
     {
       printUsage();
@@ -112,9 +113,12 @@ main (int argc, char **argv)
   printf("[OK]\n");
 
   /* DATA ZONE */
+  /* Allocating cluster metadata table*/
+  clt_table = (uint8_t*) calloc(p_sb->dzone_total, sizeof(uint8_t));
+
   /* Checking cluster caches integrity */
   printf("Checking cluster caches integrity...\t\t\t");
-  if ( (error = fsckCheckCltCaches (p_sb)) != FSCKOK )
+  if ( (error = fsckCheckCltCaches (p_sb, clt_table)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
@@ -123,7 +127,7 @@ main (int argc, char **argv)
 
   /* Checking data zone integrity */
   printf("Checking data zone integrity...\t\t\t\t");
-  if ( (error = fsckCheckDataZone (p_sb)) != FSCKOK )
+  if ( (error = fsckCheckDataZone (p_sb, clt_table)) != FSCKOK )
     {
       processError(error);
       return EXIT_SUCCESS;
@@ -139,7 +143,34 @@ main (int argc, char **argv)
     }
   printf("[OK]\n");
 
+    /* Checking cluster linked list integrity */
+  printf("Checking inode to cluster references integrity...\t");
+  if ( (error = fsckCheckInodeClusters (p_sb, clt_table)) != FSCKOK )
+    {
+      processError(error);
+      return EXIT_SUCCESS;
+    }
+  printf("[OK]\n");
+  int i;
+  for ( i = 0; i < p_sb->dzone_total; i++)
+    {
+      printf("clt[%d]:\n",i);
+      if(clt_table[i] == 0)
+        printf("\tCLT_UNCHECK\n");
+      if (clt_table[i] & CLT_FREE)
+        printf("\tCLT_FREE\n");
+      if (clt_table[i] & CLT_CLEAN)
+        printf ("\tCLT_CLEAN\n");
+      if (clt_table[i] & CLT_REF)
+        printf("\tCLT_REF\n");
+      if (clt_table[i] & CLT_REF_ERR)
+        printf("\tCLT_REF_ERR\n");
+      if (clt_table[i] & CLT_IND_ERR)
+        printf("\tCLT_IND_ERR\n");
+      
+    }
   printf("Passage 1 Done.\n");
+
   return EXIT_SUCCESS;
 }
 

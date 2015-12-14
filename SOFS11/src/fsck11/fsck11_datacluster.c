@@ -11,7 +11,7 @@
 #include "sofs_datacluster.h"
 
 
-int fsckCheckCltCaches (SOSuperBlock *p_sb)
+int fsckCheckCltCaches (SOSuperBlock *p_sb, uint8_t *clt_table)
 {
   if (p_sb == NULL)
     return -EINVAL;
@@ -38,14 +38,17 @@ int fsckCheckCltCaches (SOSuperBlock *p_sb)
       if ( (status = soReadCacheCluster(phys_clt, &current_clt)) != 0 )
         return status;
 
-      /* Checking whether the cluster is free */
+      /* Checking whether the cluster is on the general repository */
       if ( (current_clt.prev != NULL_CLUSTER) ||
            (current_clt.next != NULL_CLUSTER) )
         return -ERCACHEREF;
 
+      /* Tagging the cluster as free */
+      clt_table[logic_clt] |= CLT_FREE;
+
       /* Checking whether the cluster is clean */
-      if (current_clt.stat != NULL_INODE)
-        return -ERCLTREF;
+      /* if (current_clt.stat != NULL_INODE) */
+      /*   return -ERCLTREF; */
 
     }
 
@@ -69,15 +72,21 @@ int fsckCheckCltCaches (SOSuperBlock *p_sb)
       if ( (current_clt.prev != NULL_CLUSTER) ||
            (current_clt.next != NULL_CLUSTER) )
         return -EICACHEREF;
+
+      /* Tagging the cluster as free */
+      clt_table[logic_clt] |= CLT_FREE;
     }
 
   return FSCKOK;
 }
 
-int fsckCheckDataZone (SOSuperBlock *p_sb)
+int fsckCheckDataZone (SOSuperBlock *p_sb, uint8_t *clt_table)
 {
 
   if (p_sb == NULL)
+    return -EINVAL;
+
+  if (clt_table == NULL)
     return -EINVAL;
 
   SODataClust current_clt;
@@ -85,7 +94,7 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
   uint32_t phys_clt;  //current cluster pyhsical number
   uint32_t tail_found = 0; //boolean: true = 1; false = 0;
   uint32_t head_found = 0; //boolean: true = 1; false = 0;
-  uint32_t retriev_count = 0; //clusters supposed to belong in the retrieval cache
+  /* uint32_t retriev_count = 0; //clusters supposed to belong in the retrieval cache */
   uint32_t llist_count = 0;
   uint32_t status;
 
@@ -97,23 +106,15 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
       if ( (status = soReadCacheCluster(phys_clt, &current_clt)) != 0 )
         return status;
 
-      /* Checking whether the cluster is free */
-      if ( (current_clt.prev == NULL_CLUSTER) &&
-           (current_clt.next == NULL_CLUSTER) )
-        {
-          /* Checking whether the cluster is clean */
-          if (current_clt.stat == NULL_INODE)
-            {
-              /* printf("logic_clt:%d\n", logic_clt); */
-              retriev_count++; //this cluster is supposed to belong in the
-                               //retrieval cache
-            }
-        }
 
-      else
+      /* Checking whether the cluster is clean */
+      if ( (current_clt.prev != NULL_CLUSTER) ||
+           (current_clt.next != NULL_CLUSTER) )
         {
           //this cluster is supposed to belong in the linked list
+          clt_table[logic_clt] |= CLT_FREE;
           llist_count++;
+
           if (current_clt.prev == NULL_CLUSTER)
             {
               /* Checking if it is the head of the list */
@@ -130,8 +131,7 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
             {
               return -EDZLLBADREF;
             }
-          /* printf("here\n"); */
-          /* fflush(stdout); */
+
           if (current_clt.next == NULL_CLUSTER)
             {
               /* Checking if it is the tail of the list */
@@ -149,6 +149,14 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
               return -EDZLLBADREF;
             }
         }
+
+      if (current_clt.stat == NULL_INODE)
+        {
+          clt_table[logic_clt] |= CLT_CLEAN;
+        }
+      /* printf("logic_clt:%d\n", logic_clt); */
+      /* printf("clt:%d\n", clt_table[logic_clt]); */
+
    }
 
   fflush(stdout);
@@ -157,13 +165,13 @@ int fsckCheckDataZone (SOSuperBlock *p_sb)
   /* Checking if the retrieval cache comprises the same */
   /* number counted free clean data clusters */
   /* printf ("retriev_count:%d", retriev_count); */
-  if (DZONE_CACHE_SIZE - p_sb->dzone_retriev.cache_idx != retriev_count)
-    return -ERMISSCLT;
+  /* if (DZONE_CACHE_SIZE - p_sb->dzone_retriev.cache_idx != retriev_count) */
+  /*   return -ERMISSCLT; */
 
   fflush(stdout);
 
-  if ( p_sb->dzone_free != (retriev_count + llist_count + p_sb->dzone_insert.cache_idx) )
-    return -EFREECLT;
+  /* if ( p_sb->dzone_free != (retriev_count + llist_count + p_sb->dzone_insert.cache_idx) ) */
+  /*   return -EFREECLT; */
 
   fflush(stdout);
   return FSCKOK;
@@ -204,6 +212,136 @@ int fsckCheckCltLList (SOSuperBlock *p_sb)
       prev_cluster = next_cluster;
       next_cluster = current_cluster.next;
     }
-  printf("count: %u\n", count);
+  /* printf("count: %u\n", count); */
+  return FSCKOK;
+}
+
+int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table)
+{
+  if (p_sb == NULL)
+    return -EINVAL;
+
+  SOInode *inode_block; //the block being processed
+  uint32_t curr_block = 0; //current blocknumber with in the inode table
+  uint32_t curr_inode; //current inode within the block
+
+  uint32_t logic_clt; //logical numer of the cluster being processed
+  SODataClust *current_clt_i1;
+  SODataClust *current_clt_i2;
+  uint32_t phys_clt;
+  uint32_t idx;
+  uint32_t idx_i2;
+  uint32_t status;
+
+  while (curr_block < p_sb->itable_size)
+    {
+      /* Loading block */
+      status = soLoadBlockInT(curr_block);
+      if (status)
+        return status;
+
+      inode_block = soGetBlockInT();
+      /* Processing inodes for the current block */
+      for (curr_inode = 0; curr_inode < IPB; curr_inode++)
+        {
+
+          /* Checking direct data cluster references */
+          for (idx = 0; idx < N_DIRECT; idx++)
+            {
+              logic_clt = inode_block[curr_inode].d[idx];
+              if (logic_clt == NULL_CLUSTER)
+                continue;
+
+              /* Checking whether the cluster was already referenced */
+              if (clt_table[logic_clt] & CLT_REF){
+                printf("\n\tERROR: inode:%d is referencing already referenced data cluster %d.\n", (curr_block * IPB) +curr_inode, logic_clt);
+                clt_table[logic_clt] |= CLT_REF_ERR;
+              }
+              else
+                clt_table[logic_clt] |= CLT_REF;
+            }
+
+          /* Checking simple indirect data cluster references */
+          if (inode_block[curr_inode].i1 != NULL_CLUSTER)
+            {
+
+              logic_clt = inode_block[curr_inode].i1;
+              /* Checking whether the i1 cluster was already referenced */
+              if (clt_table[logic_clt] & CLT_REF){
+                printf("2curr_inode:%d\n", (curr_block * IPB) +curr_inode);
+                clt_table[logic_clt] |= CLT_REF_ERR;
+              }
+              else
+                clt_table[logic_clt] |= CLT_REF;
+
+              phys_clt = logic_clt * BLOCKS_PER_CLUSTER + p_sb->dzone_start;
+              if ( (status = soReadCacheCluster(phys_clt, &current_clt_i1)) != 0 )
+                return status;
+
+              for (idx = 0; idx < RPC; idx++)
+                {
+                  logic_clt = current_clt_i1->info.ref[idx];
+
+                  if (logic_clt == NULL_CLUSTER)
+                    continue;
+
+                  /* Checking whether the cluster was already referenced */
+                  if (clt_table[logic_clt] & CLT_REF)
+                    clt_table[logic_clt] |= CLT_REF_ERR;
+                  else
+                    clt_table[logic_clt] |= CLT_REF;
+                }
+            }
+
+
+          /* Checking double indirect data cluster references */
+          if (inode_block[curr_inode].i2 != NULL_CLUSTER)
+            {
+
+              logic_clt = inode_block[curr_inode].i2;
+              /* Checking whether the i2 cluster was already referenced */
+              if (clt_table[logic_clt] & CLT_REF)
+                clt_table[logic_clt] |= CLT_REF_ERR;
+              else
+                clt_table[logic_clt] |= CLT_REF;
+
+              phys_clt = logic_clt * BLOCKS_PER_CLUSTER + p_sb->dzone_start;
+              if ( (status = soReadCacheCluster(phys_clt, &current_clt_i2)) != 0 )
+                return status;
+
+              for (idx = 0; idx < RPC; idx++)
+                {
+                  logic_clt = current_clt_i2->info.ref[idx];
+                  if (logic_clt == NULL_CLUSTER)
+                    continue;
+
+                  /* Checking whether the cluster was already referenced */
+                  if (clt_table[logic_clt] & CLT_REF)
+                    clt_table[logic_clt] |= CLT_REF_ERR;
+                  else
+                    clt_table[logic_clt] |= CLT_REF;
+
+                  phys_clt = logic_clt * BLOCKS_PER_CLUSTER + p_sb->dzone_start;
+                  if ( (status = soReadCacheCluster(phys_clt, &current_clt_i1)) != 0 )
+                    return status;
+
+                  for (idx_i2 = 0; idx_i2 < RPC; idx_i2++)
+                    {
+                      logic_clt = current_clt_i1->info.ref[idx_i2];
+                      if (logic_clt == NULL_CLUSTER)
+                        continue;
+
+                      /* Checking whether the cluster was already referenced */
+                      if (clt_table[logic_clt] & CLT_REF)
+                        clt_table[logic_clt] |= CLT_REF_ERR;
+                      else
+                        clt_table[logic_clt] |= CLT_REF;
+                    }
+                }
+            }
+        }
+      curr_block++;
+    }
+
   return FSCKOK;
 }

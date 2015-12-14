@@ -108,6 +108,25 @@
 /** \brief Inconsistent number of free data clusters */
 #define EFREECLT 561
 
+/** Cluster table bit masks **/
+/** \brief The cluster remains unchecked. **/
+#define CLT_UNCHECK 0x00
+
+/** \brief The cluster is free. **/
+#define CLT_FREE 0x01
+
+/** \brief The cluster is in the clean state. **/
+#define CLT_CLEAN 0x01 << 1
+
+/** \brief The cluster is referenced by an inode. **/
+#define CLT_REF 0x01 << 2
+
+/** \brief The cluster is referenced by multiple inodes. **/
+#define CLT_REF_ERR 0x01 << 3
+
+/** \brief The cluster is not referencing the inode which references this cluster. **/
+#define CLT_IND_ERR 0x01 << 4
+
 /* Methods */
 
 /* Super Block Related Tasks */
@@ -127,8 +146,10 @@ int fsckCheckInodeList (SOSuperBlock *p_sb);
 
 /* Data Cluster Related Tasks */
 
-int fsckCheckCltCaches (SOSuperBlock *p_sb);
+int fsckCheckCltCaches (SOSuperBlock *p_sb, uint8_t *clt_table);;
 
-int fsckCheckDataZone (SOSuperBlock *p_sb);
+int fsckCheckDataZone (SOSuperBlock *p_sb, uint8_t *clt_table);
 
 int fsckCheckCltLList (SOSuperBlock *p_sb);
+
+int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table);
