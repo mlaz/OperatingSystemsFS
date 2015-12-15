@@ -15,26 +15,56 @@
 #include "sofs_basicoper.h"
 #include "fsck_sofs11.h"
 
-static void printUsage ();
-static void processError (int error);
+static void printUsage (char **argv);
+static void processError (FILE *logfile, int error);
+static void logTables(FILE *logfile,
+                      uint8_t *clt_table,
+                      uint32_t dzone_total,
+                      uint8_t *inode_table,
+                      uint32_t itotal);
 
 int
 main (int argc, char **argv)
 {
+  char *logfile_path = NULL;
+  char *diskfile_path = NULL;
+  FILE *logfile;
   struct stat st;
   SOSuperBlock *p_sb;
   int status, error = 0;
   uint32_t ntotal;       /* total number of blocks */
   uint8_t *clt_table;
   uint8_t *inode_table;
-  if (argc != 2)
+
+  if (argc < 2)
     {
-      printUsage();
+      printUsage(argv);
+      return EXIT_FAILURE;
+    }
+
+  while ((status = getopt (argc, argv, "f:l:")) != -1)
+    switch (status)
+      {
+      case 'l':
+        logfile_path = optarg;
+        break;
+      case 'f':
+        diskfile_path = optarg;
+        break;
+      case '?':
+        printUsage(argv);
+      default:
+        abort ();
+      }
+
+  if (diskfile_path == NULL)
+    {
+      printUsage(argv);
       return EXIT_FAILURE;
     }
 
   /* Getting file size */
-  if (stat(argv[1], &st) == -1)
+  if (stat(diskfile_path, &st) == -1)
     {
         perror("stat");
         return EXIT_FAILURE;
@@ -48,7 +78,7 @@ main (int argc, char **argv)
     }
 
   /* Opening a buffered communication channel with the storage device */
-  if ((status = soOpenBufferCache (argv[optind], BUF)) != 0)
+  if ((status = soOpenBufferCache (diskfile_path, BUF)) != 0)
     {
       printf("Failed opening buffered communication channel.\n");
       return EXIT_FAILURE;
@@ -61,60 +91,92 @@ main (int argc, char **argv)
     }
   p_sb = soGetSuperBlock ();
 
+
+  /** Setting up logfile **/
+  if (logfile_path == NULL)
+    {
+      logfile = fopen("/dev/null", "wa");
+      if (logfile == NULL)
+        {
+          fprintf(stderr, "Failed opening /dev/null.\n");
+          return EXIT_FAILURE;
+        }
+    }
+  else
+    {
+      logfile = fopen(logfile_path, "w");
+      if (logfile == NULL)
+        {
+          fprintf(stderr, "Failed opening %s\n", logfile_path);
+          return EXIT_FAILURE;
+        }
+    }
+
   /** PASSAGE 1 **/
 
   /* SB */
   /* Checking super block header integrity */
   printf("Checking super block header integrity...\t\t");
+  fprintf(logfile, "Checking super block header integrity...\t\t");
   if ( (error = fsckCheckSuperBlockHeader (p_sb)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* Checking super block inode table metadata integrity */
   printf("Checking super block inode table metadata integrity...\t");
+  fprintf(logfile, "Checking super block inode table metadata integrity...\t");
   if ( (error = fsckCheckSBInodeMetaData (p_sb)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* Checking super block data zone metadata integrity */
   printf("Checking super block data zone metadata integrity...\t");
+  fprintf(logfile, "Checking super block data zone metadata integrity...\t");
 
   ntotal = st.st_size / BLOCK_SIZE;
 
   if ( (error = fsckCheckDZoneMetaData (p_sb, ntotal)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
   printf("Passage 1 Done.\n");
+  fprintf(logfile, "[OK]\n");
+  fprintf(logfile, "Passage 1 Done.\n");
 
   /** PASSAGE 2 **/
 
   /* INODES */
   /* Checking inode table integrity */
   printf("Checking inode table integrity...\t\t\t");
+  fprintf(logfile, "Checking inode table integrity...\t\t\t");
   if ( (error = fsckCheckInodeTable (p_sb)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* Checking inode linked list integrity */
   printf("Checking inode linked list integrity...\t\t\t");
+  fprintf(logfile, "Checking inode linked list integrity...\t\t\t");
   if ( (error = fsckCheckInodeList (p_sb)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* DATA ZONE */
   /* Allocating cluster metadata table*/
@@ -122,304 +184,378 @@ main (int argc, char **argv)
 
   /* Checking cluster caches integrity */
   printf("Checking cluster caches integrity...\t\t\t");
+  fprintf(logfile, "Checking cluster caches integrity...\t\t\t");
   if ( (error = fsckCheckCltCaches (p_sb, clt_table)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
+      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* Checking data zone integrity */
   printf("Checking data zone integrity...\t\t\t\t");
+  fprintf(logfile, "Checking data zone integrity...\t\t\t\t");
   if ( (error = fsckCheckDataZone (p_sb, clt_table)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
+      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
   /* Checking cluster linked list integrity */
   printf("Checking cluster linked list integrity...\t\t");
+  fprintf(logfile, "Checking cluster linked list integrity...\t\t");
   if ( (error = fsckCheckCltLList (p_sb)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
+      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
+  fprintf(logfile, "[OK]\n");
 
     /* Checking cluster linked list integrity */
   printf("Checking inode to cluster references integrity...\t");
+  fprintf(logfile, "Checking inode to cluster references integrity...\t");
   if ( (error = fsckCheckInodeClusters (p_sb, clt_table)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
+      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
-  int i;
-  for ( i = 0; i < p_sb->dzone_total; i++)
-    {
-      printf("clt[%d]:\n",i);
-      if (clt_table[i] == 0)
-        printf("\tCLT_UNCHECK\n");
-      if (clt_table[i] & CLT_FREE)
-        printf("\tCLT_FREE\n");
-      if (clt_table[i] & CLT_CLEAN)
-        printf ("\tCLT_CLEAN\n");
-      if (clt_table[i] & CLT_REF)
-        printf("\tCLT_REF\n");
-      if (clt_table[i] & CLT_REF_ERR)
-        printf("\tCLT_REF_ERR\n");
-      if (clt_table[i] & CLT_IND_ERR)
-        printf("\tCLT_IND_ERR\n");
+  fprintf(logfile, "[OK]\n");
 
-    }
+  logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
 
   printf("Passage 2 Done.\n");
-
+  fprintf(logfile, "Passage 2 Done.\n");
   /** PASSAGE 3 **/
 
   inode_table = (uint8_t*) calloc(p_sb->itotal, sizeof(uint8_t));
   /* Checking directory tree integrity */
-  printf("Checking directory tree integrity...\t\t");
+  printf("Checking directory tree integrity...\t\t\t");
+  fprintf(logfile, "Checking directory tree integrity...\t\t\t");
   if ( (error = fsckCheckDirTree (p_sb, inode_table)) != FSCKOK )
     {
-      processError(error);
+      processError(logfile, error);
+      logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
-
-    for ( i = 0; i < p_sb->itotal; i++)
-    {
-      printf("inod[%d]:\n",i);
-      if (inode_table[i]  == 0)
-        printf("\tINOD_UNCHECK\n");
-      if (inode_table[i] & INOD_CHECK)
-        printf("\tINOD_CHECK\n");
-      if (inode_table[i] & INOD_FREE)
-        printf("\tINOD_FREE\n");
-      if (inode_table[i] & INOD_CLEAN)
-        printf ("\tINOD_CLEAN\n");
-      if (inode_table[i] & INOD_REF_ERR)
-        printf("\tINOD_REF_ERR\n");
-      if (inode_table[i] & INOD_PARENT_ERR)
-        printf("\tINOD_PARENT_ERR\n");
-      if (inode_table[i] & INOD_LOOP)
-        printf("\tINOD_LOOP\n");
-
-    }
+  fprintf(logfile, "[OK]\n");
+  logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
 
   return EXIT_SUCCESS;
 }
 
-static void printUsage ()
+static void logTables(FILE *logfile,
+                      uint8_t *clt_table,
+                      uint32_t dzone_total,
+                      uint8_t *inode_table,
+                      uint32_t itotal)
 {
-  printf("usage: fsck11 <volume_path>\n");
+  int i;
+  if (logfile == NULL)
+    return;
+
+
+  if (clt_table != NULL && (dzone_total > 0))
+    {
+      fprintf(logfile, "\n**DataCluster table:\n");
+      for (i = 0; i < dzone_total; i++)
+        {
+          fprintf(logfile, "clt[%d]:\n",i);
+          if (clt_table[i] == 0)
+            fprintf(logfile, "\tCLT_UNCHECK\n");
+          if (clt_table[i] & CLT_FREE)
+            fprintf(logfile, "\tCLT_FREE\n");
+          if (clt_table[i] & CLT_CLEAN)
+            fprintf(logfile, "\tCLT_CLEAN\n");
+          if (clt_table[i] & CLT_REF)
+            fprintf(logfile, "\tCLT_REF\n");
+          if (clt_table[i] & CLT_REF_ERR)
+            fprintf(logfile, "\tCLT_REF_ERR\n");
+          if (clt_table[i] & CLT_IND_ERR)
+            fprintf(logfile, "\tCLT_IND_ERR\n");
+
+        }
+      fflush(logfile);
+    }
+
+  if (inode_table != NULL && (itotal > 0))
+    {
+      fprintf(logfile, "\n**Inode table:\n");
+      for (i = 0; i < itotal; i++)
+        {
+          fprintf(logfile, "inod[%d]:\n",i);
+          if (inode_table[i]  == 0)
+            fprintf(logfile, "\tINOD_UNCHECK\n");
+          if (inode_table[i] & INOD_CHECK)
+            fprintf(logfile, "\tINOD_CHECK\n");
+          if (inode_table[i] & INOD_FREE)
+            fprintf(logfile, "\tINOD_FREE\n");
+          if (inode_table[i] & INOD_CLEAN)
+            fprintf(logfile, "\tINOD_CLEAN\n");
+          if (inode_table[i] & INOD_REF_ERR)
+            fprintf(logfile, "\tINOD_REF_ERR\n");
+          if (inode_table[i] & INOD_PARENT_ERR)
+            fprintf(logfile, "\tINOD_PARENT_ERR\n");
+          if (inode_table[i] & INOD_LOOP)
+            fprintf(logfile, "\tINOD_LOOP\n");
+
+        }
+      fflush(logfile);
+    }
+
 }
 
-static void processError (int error)
+static void printUsage (char **argv)
 {
-  printf("[ERROR]\n");
+  printf("usage: %s -f <volume_path> -l <logfile_path> \n", argv[0]);
+}
+
+static void processError (FILE* logfile, int error)
+{
+  fprintf(stderr, "[ERROR]\n");
+  fprintf(logfile, "[ERROR]\n");
   switch (-error)
     {
 
       /* SuperBlock Checking Related */
     case EMAGIC :
       {
-        printf("Invalid Magic number.\n");
+        fprintf(stderr, "Invalid Magic number.\n");
+        fprintf(logfile, "Invalid Magic number.\n");
         break;
       }
 
     case EVERSION :
       {
-        printf("Invalid version number.\n");
+        fprintf(stderr, "Invalid version number.\n");
+        fprintf(logfile, "Invalid version number.\n");
         break;
       }
 
     case EVNAME :
       {
-        printf("Inconsistent name string.\n");
+        fprintf(stderr, "Inconsistent name string.\n");
+        fprintf(logfile, "Inconsistent name string.\n");
         break;
       }
 
     case EMSTAT :
       {
-        printf("Inconsistent mstat flag.\n");
+        fprintf(stderr, "Inconsistent mstat flag.\n");
+        fprintf(logfile, "Inconsistent mstat flag.\n");
         break;
       }
 
     case ESBISTART :
       {
-        printf("Inconsistent inode table start value.\n");
+        fprintf(stderr, "Inconsistent inode table start value.\n");
+        fprintf(logfile, "Inconsistent inode table start value.\n");
         break;
       }
 
     case ESBISIZE :
       {
-        printf("Inconsistent inode table size value.\n");
+        fprintf(stderr, "Inconsistent inode table size value.\n");
+        fprintf(logfile, "Inconsistent inode table size value.\n");
         break;
       }
 
     case ESBITOTAL :
       {
-        printf("Inconsistent total inode value.\n");
+        fprintf(stderr, "Inconsistent total inode value.\n");
+        fprintf(logfile, "Inconsistent total inode value.\n");
         break;
       }
 
     case ESBIFREE :
       {
-        printf("Inconsistent free inode value.\n");
+        fprintf(stderr, "Inconsistent free inode value.\n");
+        fprintf(logfile, "Inconsistent free inode value.\n");
         break;
       }
 
     case ESBDZSTART :
       {
-        printf("Inconsistent data zone start value.\n");
+        fprintf(stderr, "Inconsistent data zone start value.\n");
+        fprintf(logfile, "Inconsistent data zone start value.\n");
         break;
       }
 
     case ESBDZTOTAL :
       {
-        printf("Inconsistent data zone total value.\n");
+        fprintf(stderr, "Inconsistent data zone total value.\n");
+        fprintf(logfile, "Inconsistent data zone total value.\n");
         break;
       }
 
     case ESBDZFREE :
       {
-        printf("Inconsistent data zone free value.\n");
+        fprintf(stderr, "Inconsistent data zone free value.\n");
+        fprintf(logfile, "Inconsistent data zone free value.\n");
         break;
       }
 
       /* InodeTable Consistency Checking Related */
     case EIBADINODEREF :
       {
-        printf("Inconsistent inode linked list reference.\n");
+        fprintf(stderr, "Inconsistent inode linked list reference.\n");
+        fprintf(logfile, "Inconsistent inode linked list reference.\n");
         break;
       }
 
     case EIBADHEAD :
       {
-        printf("Inconsistent inode linked list head.\n");
+        fprintf(stderr, "Inconsistent inode linked list head.\n");
+        fprintf(logfile, "Inconsistent inode linked list reference.\n");
         break;
       }
 
     case EIBADTAIL :
       {
-        printf("Inconsistent inode linked list tail.\n");
+        fprintf(stderr, "Inconsistent inode linked list tail.\n");
+        fprintf(logfile, "Inconsistent inode linked list reference.\n");
         break;
       }
 
     case EBADFREECOUNT :
       {
-        printf("Inconsistent ifree value on superblock.\n");
+        fprintf(stderr, "Inconsistent ifree value on superblock.\n");
+        fprintf(logfile, "Inconsistent inode linked list reference.\n");
         break;
       }
 
     case EILLNOTFREE :
       {
-        printf("Inode not free within the linked list.\n");
+        fprintf(stderr, "Inode not free within the linked list.\n");
+        fprintf(logfile, "Inode not free within the linked list.\n");
         break;
       }
 
     case EILLLOOP :
       {
-        printf("Inode linked list might have a loop.\n");
+        fprintf(stderr, "Inode linked list might have a loop.\n");
+        fprintf(logfile, "Inode linked list might have a loop.\n");
         break;
       }
 
     case EILLBROKEN :
       {
-        printf("Inode linked list is broken.\n");
+        fprintf(stderr, "Inode linked list is broken.\n");
+        fprintf(logfile, "Inode linked list is broken.\n");
         break;
       }
 
       /* DataZone Consistency Checking Related */
     case ERCACHEIDX :
       {
-        printf("Retrieval cache index out of bounderies.\n");
+        fprintf(stderr, "Retrieval cache index out of bounderies.\n");
+        fprintf(logfile, "Retrieval cache index out of bounderies.\n");
         break;
       }
 
     case ERCACHEREF :
       {
-        printf("Retrieval cache cluster is not free.\n");
+        fprintf(stderr, "Retrieval cache cluster is not free.\n");
+        fprintf(logfile, "Retrieval cache cluster is not free.\n");
         break;
       }
 
     case  ERCLTREF :
       {
-        printf("Invalid retrieval cache reference (cluster not clean).\n");
+        fprintf(stderr, "Invalid retrieval cache reference (cluster not clean).\n");
+        fprintf(logfile, "Invalid retrieval cache reference (cluster not clean).\n");
         break;
       }
 
     case  EICACHEIDX :
       {
-        printf("Insertion cache index out of bounderies.\n");
+        fprintf(stderr, "Insertion cache index out of bounderies.\n");
+        fprintf(logfile, "Insertion cache index out of bounderies.\n");
         break;
       }
 
     case  EICACHEREF :
       {
-        printf("Retrieval cache cluster is not free.\n");
+        fprintf(stderr, "Retrieval cache cluster is not free.\n");
+        fprintf(logfile, "Retrieval cache cluster is not free.\n");
         break;
       }
 
 
     case EDZLLLOOP :
       {
-        printf("DZone linked list might have a loop.\n");
+        fprintf(stderr, "DZone linked list might have a loop.\n");
+        fprintf(logfile, "DZone linked list might have a loop.\n");
         break;
       }
 
     case EDZLLBROKEN :
       {
-        printf("DZone linked list broken.\n");
+        fprintf(stderr, "DZone linked list broken.\n");
+        fprintf(logfile, "DZone linked list broken.\n");
         break;
       }
 
     case EDZBADTAIL :
       {
-        printf("Inconsistent DZone linked list tail.\n");
+        fprintf(stderr, "Inconsistent DZone linked list tail.\n");
+        fprintf(logfile, "Inconsistent DZone linked list tail.\n");
         break;
       }
 
     case EDZBADHEAD :
       {
-        printf("Inconsistent DZone linked list head.\n");
+        fprintf(stderr, "Inconsistent DZone linked list head.\n");
+        fprintf(logfile, "Inconsistent DZone linked list head.\n");
         break;
       }
 
     case EDZLLBADREF :
       {
-        printf("Inconsistent DZone linked list reference.\n");
+        fprintf(stderr, "Inconsistent DZone linked list reference.\n");
+        fprintf(logfile, "Inconsistent DZone linked list reference.\n");
         break;
       }
 
     case ERMISSCLT :
       {
-        printf("Inconsistent number of (free clean) data clusters on retrieval cache.\n");
+        fprintf(stderr, "Inconsistent number of (free clean) data clusters on retrieval cache.\n");
+        fprintf(logfile, "Inconsistent number of (free clean) data clusters on retrieval cache.\n");
         break;
       }
 
     case EFREECLT :
       {
-        printf("Inconsistent number of free data clusters.\n");
+        fprintf(stderr, "Inconsistent number of free data clusters.\n");
+        fprintf(logfile, "Inconsistent number of free data clusters.\n");
         break;
       }
 
     case EDIRLOOP :
       {
-        printf("There is a loop on the directory tree.\n");
+        fprintf(stderr, "There is a loop on the directory tree.\n");
+        fprintf(logfile, "There is a loop on the directory tree.\n");
         break;
       }
 
     /* case EINVAL : */
     /*   { */
-    /*     printf("EINVAL \n"); */
+    /*     fprintf(stderr, "EINVAL \n"); */
     /*     break; */
     /*   } */
 
       /* TODO: BasicOper/Buffercache Related */
     default:
-      printf("Unknown error: %d \n", error);
+      fprintf(stderr, "Unknown error: %d \n", error);
+      fprintf(logfile, "Unknown error: %d \n", error);
     }
 }
