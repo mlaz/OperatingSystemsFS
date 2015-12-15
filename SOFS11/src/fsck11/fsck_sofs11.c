@@ -118,6 +118,7 @@ main (int argc, char **argv)
   /* Checking super block header integrity */
   printf("Checking super block header integrity...\t\t");
   fprintf(logfile, "Checking super block header integrity...\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckSuperBlockHeader (p_sb)) != FSCKOK )
     {
       processError(logfile, error);
@@ -129,6 +130,8 @@ main (int argc, char **argv)
   /* Checking super block inode table metadata integrity */
   printf("Checking super block inode table metadata integrity...\t");
   fprintf(logfile, "Checking super block inode table metadata integrity...\t");
+  fflush(stdout);
+
   if ( (error = fsckCheckSBInodeMetaData (p_sb)) != FSCKOK )
     {
       processError(logfile, error);
@@ -140,6 +143,7 @@ main (int argc, char **argv)
   /* Checking super block data zone metadata integrity */
   printf("Checking super block data zone metadata integrity...\t");
   fprintf(logfile, "Checking super block data zone metadata integrity...\t");
+  fflush(stdout);
 
   ntotal = st.st_size / BLOCK_SIZE;
 
@@ -157,10 +161,13 @@ main (int argc, char **argv)
 
   /* INODES */
   /* Checking inode table integrity */
+  inode_table = (uint8_t*) calloc(p_sb->itotal, sizeof(uint8_t));
   printf("Checking inode table integrity...\t\t\t");
   fprintf(logfile, "Checking inode table integrity...\t\t\t");
-  if ( (error = fsckCheckInodeTable (p_sb)) != FSCKOK )
+  fflush(stdout);
+  if ( (error = fsckCheckInodeTable (p_sb, inode_table)) != FSCKOK )
     {
+      logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
       processError(logfile, error);
       return EXIT_SUCCESS;
     }
@@ -170,8 +177,10 @@ main (int argc, char **argv)
   /* Checking inode linked list integrity */
   printf("Checking inode linked list integrity...\t\t\t");
   fprintf(logfile, "Checking inode linked list integrity...\t\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckInodeList (p_sb)) != FSCKOK )
     {
+      logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
       processError(logfile, error);
       return EXIT_SUCCESS;
     }
@@ -185,10 +194,11 @@ main (int argc, char **argv)
   /* Checking cluster caches integrity */
   printf("Checking cluster caches integrity...\t\t\t");
   fprintf(logfile, "Checking cluster caches integrity...\t\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckCltCaches (p_sb, clt_table)) != FSCKOK )
     {
       processError(logfile, error);
-      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
+      logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
@@ -197,10 +207,11 @@ main (int argc, char **argv)
   /* Checking data zone integrity */
   printf("Checking data zone integrity...\t\t\t\t");
   fprintf(logfile, "Checking data zone integrity...\t\t\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckDataZone (p_sb, clt_table)) != FSCKOK )
     {
       processError(logfile, error);
-      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
+      logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
@@ -209,46 +220,46 @@ main (int argc, char **argv)
   /* Checking cluster linked list integrity */
   printf("Checking cluster linked list integrity...\t\t");
   fprintf(logfile, "Checking cluster linked list integrity...\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckCltLList (p_sb)) != FSCKOK )
     {
       processError(logfile, error);
-      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
+      logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
   fprintf(logfile, "[OK]\n");
 
-    /* Checking cluster linked list integrity */
+  /* Checking cluster linked list integrity */
   printf("Checking inode to cluster references integrity...\t");
   fprintf(logfile, "Checking inode to cluster references integrity...\t");
-  if ( (error = fsckCheckInodeClusters (p_sb, clt_table)) != FSCKOK )
+  fflush(stdout);
+  if ( (error = fsckCheckInodeClusters (p_sb, clt_table, inode_table)) != FSCKOK )
     {
       processError(logfile, error);
-      logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
+      logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
   fprintf(logfile, "[OK]\n");
-
-  logTables(logfile, clt_table, p_sb->dzone_total, NULL, 0);
 
   printf("Passage 2 Done.\n");
   fprintf(logfile, "Passage 2 Done.\n");
   /** PASSAGE 3 **/
 
-  inode_table = (uint8_t*) calloc(p_sb->itotal, sizeof(uint8_t));
   /* Checking directory tree integrity */
   printf("Checking directory tree integrity...\t\t\t");
   fprintf(logfile, "Checking directory tree integrity...\t\t\t");
+  fflush(stdout);
   if ( (error = fsckCheckDirTree (p_sb, inode_table)) != FSCKOK )
     {
       processError(logfile, error);
-      logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
+      logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
       return EXIT_SUCCESS;
     }
   printf("[OK]\n");
   fprintf(logfile, "[OK]\n");
-  logTables(logfile, NULL, 0, inode_table, p_sb->itotal);
+  logTables(logfile, clt_table, p_sb->dzone_total, inode_table, p_sb->itotal);
 
   return EXIT_SUCCESS;
 }
@@ -301,10 +312,14 @@ static void logTables(FILE *logfile,
             fprintf(logfile, "\tINOD_FREE\n");
           if (inode_table[i] & INOD_CLEAN)
             fprintf(logfile, "\tINOD_CLEAN\n");
+          if (inode_table[i] & INOD_VISIT)
+            fprintf(logfile, "\tINOD_VISIT\n");
           if (inode_table[i] & INOD_REF_ERR)
             fprintf(logfile, "\tINOD_REF_ERR\n");
           if (inode_table[i] & INOD_PARENT_ERR)
             fprintf(logfile, "\tINOD_PARENT_ERR\n");
+          if (inode_table[i] & INOD_DOUB_REF)
+            fprintf(logfile, "\tINOD_DOUB_REF\n");
           if (inode_table[i] & INOD_LOOP)
             fprintf(logfile, "\tINOD_LOOP\n");
 

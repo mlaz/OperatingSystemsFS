@@ -216,7 +216,7 @@ int fsckCheckCltLList (SOSuperBlock *p_sb)
   return FSCKOK;
 }
 
-int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table)
+int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table, uint8_t *inode_table)
 {
   if (p_sb == NULL)
     return -EINVAL;
@@ -232,6 +232,7 @@ int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table)
   uint32_t idx;
   uint32_t idx_i2;
   uint32_t status;
+  uint32_t inode_num = 0;
 
   while (curr_block < p_sb->itable_size)
     {
@@ -254,7 +255,11 @@ int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table)
 
               /* Checking whether the cluster was already referenced */
               if (clt_table[logic_clt] & CLT_REF){
-                printf("\n\tERROR: inode:%d is referencing already referenced data cluster %d.\n", (curr_block * IPB) +curr_inode, logic_clt);
+                //printf("\n\tERROR: inode:%d is referencing already
+                //referenced data cluster %d.\n", (curr_block * IPB)
+                //+curr_inode, logic_clt);
+                inode_num = (curr_block * IPB) + curr_inode;
+                inode_table[inode_num] |= INOD_DOUB_REF;
                 clt_table[logic_clt] |= CLT_REF_ERR;
               }
               else

@@ -58,13 +58,12 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_t
     goto end;
 
   /* Checking whether this directory has already been visited*/
-  if (inode_tbl[current_inode] != INOD_UNCHECK)
+  if (inode_tbl[current_inode] & INOD_VISIT)
     {
-      inode_tbl[current_inode] |= INOD_CHECK;
       inode_tbl[current_inode] |= INOD_LOOP;
       return -EDIRLOOP;
     }
-  inode_tbl[current_inode] |= INOD_CHECK;
+  inode_tbl[current_inode] |= INOD_VISIT;
 
   /* Getting it's dir entrytable */
   logic_clt = inode_block[inode_offset].d[0];

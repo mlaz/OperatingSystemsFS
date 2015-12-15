@@ -12,6 +12,7 @@
 #define FSCKOK 0
 
 
+
 /* SuperBlock Checking Related */
 
 /** \brief Invalid Magic number */
@@ -47,6 +48,8 @@
 /** \brief Inconsistent data zone free value */
 #define ESBDZFREE 542
 
+
+
 /* InodeTable Consistency Checking Related */
 
 /** \brief Inconsistent inode linked list reference */
@@ -69,6 +72,8 @@
 
 /** \brief Inode linked list is broken */
 #define EILLBROKEN 549
+
+
 
 /* DataZone Consistency Checking Related */
 
@@ -149,16 +154,24 @@
 /** \brief The cluster is in the clean state. **/
 #define INOD_CLEAN 0x01 << 2
 
+/** \brief The Inode represents a directory and was visited.  **/
+#define INOD_VISIT 0x01 << 3
+
 /** \brief The Inode represents a directory and its "." reference is wrong. **/
-#define INOD_REF_ERR 0x01 << 3
+#define INOD_REF_ERR 0x01 << 4
 
 /** \brief The Inode represents a directory and its ".." reference ponts to a
     different parent. **/
-#define INOD_PARENT_ERR 0x01 << 4
+#define INOD_PARENT_ERR 0x01 << 5
+
+/** \brief The Inode points to an already referenced data cluster. **/
+#define INOD_DOUB_REF 0x01 << 6
 
 /** \brief The Inode represents a directory and its a loop entry on the
     directory tree. **/
-#define INOD_LOOP 0x01 << 5
+#define INOD_LOOP 0x01 << 7
+
+
 
 /* Methods */
 
@@ -173,7 +186,7 @@ int fsckCheckDZoneMetaData (SOSuperBlock *p_sb, uint32_t ntotal);
 
 /* Inode Related Tasks */
 
-int fsckCheckInodeTable (SOSuperBlock *p_sb);
+int fsckCheckInodeTable (SOSuperBlock *p_sb, uint8_t *inode_tbl);
 
 int fsckCheckInodeList (SOSuperBlock *p_sb);
 
@@ -185,7 +198,7 @@ int fsckCheckDataZone (SOSuperBlock *p_sb, uint8_t *clt_table);
 
 int fsckCheckCltLList (SOSuperBlock *p_sb);
 
-int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table);
+int fsckCheckInodeClusters (SOSuperBlock *p_sb, uint8_t *clt_table, uint8_t *inode_table);
 
 /* Directory Related Tasks */
 

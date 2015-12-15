@@ -8,7 +8,7 @@
 #include "sofs_inode.h"
 #include "fsck_sofs11.h"
 
-int fsckCheckInodeTable (SOSuperBlock *p_sb)
+int fsckCheckInodeTable (SOSuperBlock *p_sb, uint8_t *inode_tbl)
 {
   if (p_sb == NULL)
     return -EINVAL;
@@ -20,6 +20,7 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
   uint32_t head_found = 0; //boolean: true = 1; false = 0;
   uint32_t freecount = 0; //free (clean + dirty) inode count
   uint32_t status;
+  uint32_t inode_num = 0;
 
   while (curr_block < p_sb->itable_size)
     {
@@ -33,10 +34,13 @@ int fsckCheckInodeTable (SOSuperBlock *p_sb)
       /* Processing inodes for the current block */
       for (curr_inode = 0; curr_inode <= IPB; curr_inode++)
         {
+          inode_num = curr_inode + (curr_block * IPB);
+          inode_tbl[inode_num] |= INOD_CHECK;
           /* Checking if the inode is free */
           if (inode_block[curr_inode].mode & INODE_FREE)
             {
               freecount++;
+              inode_tbl[inode_num] |= INOD_FREE;
 
               /* Checking vD2.prev reference intgrity */
               if (inode_block[curr_inode].vD2.prev == NULL_INODE)
