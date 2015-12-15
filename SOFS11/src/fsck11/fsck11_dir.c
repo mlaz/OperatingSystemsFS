@@ -18,7 +18,7 @@ int fsckCheckDirTree (SOSuperBlock *p_sb, uint8_t *inode_tbl)
 
   int ret;
   FSCKStack *stack = newStack();
-git   stackIn(stack, 0, 0);
+  stackIn(stack, 0, 0);
   ret = checkDirRec(stack, p_sb->dzone_start, inode_tbl);
   destroyStack(stack);
   return ret;
@@ -92,7 +92,7 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_t
   for (cnt = 2; cnt < DPC; cnt++)
     {
       if ((current_clt.info.de[cnt].nInode != NULL_INODE)
-          && (current_clt.info.de[cnt].name[0] != "\0")) {
+          && (current_clt.info.de[cnt].name[0] != '\0')) {
         stackIn(stack, current_clt.info.de[cnt].nInode, current_inode);
         /* printf("inode:%d\n", current_clt.info.de[cnt].nInode); */
         /* printf("name: %s\n", current_clt.info.de[cnt].name); */
