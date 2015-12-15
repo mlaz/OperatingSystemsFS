@@ -111,7 +111,10 @@
 /** \brief There is a loop on the directory tree */
 #define EDIRLOOP 562
 
+
+
 /** Cluster table bit masks **/
+
 /** \brief The cluster remains unchecked. **/
 #define CLT_UNCHECK 0x00
 
@@ -130,22 +133,32 @@
 /** \brief The cluster is not referencing the inode which references this cluster. **/
 #define CLT_IND_ERR 0x01 << 4
 
+
+
 /** Inode table bit masks **/
+
 /** \brief The cluster remains unchecked. **/
 #define INOD_UNCHECK 0x00
 
 /** \brief The cluster is free. **/
-#define INOD_FREE 0x01
+#define INOD_CHECK 0x01
+
+/** \brief The cluster is free. **/
+#define INOD_FREE 0x01 << 1
 
 /** \brief The cluster is in the clean state. **/
-#define INOD_CLEAN 0x01 << 1
+#define INOD_CLEAN 0x01 << 2
 
-/** \brief The Inode represents a directory and its "." reference is wrong **/
-#define INOD_REF_ERR 0x01 << 2
+/** \brief The Inode represents a directory and its "." reference is wrong. **/
+#define INOD_REF_ERR 0x01 << 3
 
 /** \brief The Inode represents a directory and its ".." reference ponts to a
-    different parent **/
-#define INOD_PARENT_ERR 0x01 << 3
+    different parent. **/
+#define INOD_PARENT_ERR 0x01 << 4
+
+/** \brief The Inode represents a directory and its a loop entry on the
+    directory tree. **/
+#define INOD_LOOP 0x01 << 5
 
 /* Methods */
 

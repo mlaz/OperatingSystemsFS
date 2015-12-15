@@ -177,6 +177,7 @@ main (int argc, char **argv)
   printf("Passage 2 Done.\n");
 
   /** PASSAGE 3 **/
+
   inode_table = (uint8_t*) calloc(p_sb->itotal, sizeof(uint8_t));
   /* Checking directory tree integrity */
   printf("Checking directory tree integrity...\t\t");
@@ -192,6 +193,8 @@ main (int argc, char **argv)
       printf("inod[%d]:\n",i);
       if (inode_table[i]  == 0)
         printf("\tINOD_UNCHECK\n");
+      if (inode_table[i] & INOD_CHECK)
+        printf("\tINOD_CHECK\n");
       if (inode_table[i] & INOD_FREE)
         printf("\tINOD_FREE\n");
       if (inode_table[i] & INOD_CLEAN)
@@ -200,6 +203,8 @@ main (int argc, char **argv)
         printf("\tINOD_REF_ERR\n");
       if (inode_table[i] & INOD_PARENT_ERR)
         printf("\tINOD_PARENT_ERR\n");
+      if (inode_table[i] & INOD_LOOP)
+        printf("\tINOD_LOOP\n");
 
     }
 
@@ -401,7 +406,6 @@ static void processError (int error)
         break;
       }
 
-      
     case EDIRLOOP :
       {
         printf("There is a loop on the directory tree.\n");

@@ -18,7 +18,7 @@ int fsckCheckDirTree (SOSuperBlock *p_sb, uint8_t *inode_tbl)
 
   int ret;
   FSCKStack *stack = newStack();
-  stackIn(stack, 0, 0);
+git   stackIn(stack, 0, 0);
   ret = checkDirRec(stack, p_sb->dzone_start, inode_tbl);
   destroyStack(stack);
   return ret;
@@ -41,10 +41,10 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_t
   SODataClust current_clt;
   int cnt;
 
-  if (inode_tbl[current_inode] != INOD_UNCHECK)
-    {
-      return EDIRLOOP;
-    }
+
+  /* printf("current_inode:%d\n", current_inode); */
+  /* printf("parent_inode:%d\n", parent); */
+
   /* Reading the next inode from inode table */
   if ( (status = soConvertRefInT(current_inode, &block_num, &inode_offset)) < 0 )
     return status;
@@ -54,18 +54,29 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_t
   inode_block = soGetBlockInT();
 
   /* Checking whether it is a directory or not */
-  printf("current_inode:%d\n", current_inode);
-  printf("parent_inode:%d\n", parent);
-
   if ((inode_block[inode_offset].mode & INODE_DIR) != INODE_DIR)
     goto end;
 
-  /* Getting the directory table */
+  /* Checking whether this directory has already been visited*/
+  if (inode_tbl[current_inode] != INOD_UNCHECK)
+    {
+      inode_tbl[current_inode] |= INOD_CHECK;
+      inode_tbl[current_inode] |= INOD_LOOP;
+      return -EDIRLOOP;
+    }
+  inode_tbl[current_inode] |= INOD_CHECK;
+
+  /* Getting it's dir entrytable */
   logic_clt = inode_block[inode_offset].d[0];
 
   // check whether the cluster is "problem free", check this out on the table
   phys_clt = logic_clt * BLOCKS_PER_CLUSTER + dzone_start;
-  //printf("Phys:%d\n", phys_clt);
+  /* printf("Phys:%d\n", phys_clt); */
+
+  /* Fetching the datacluster */
+  if ( (status = soReadCacheCluster(phys_clt, &current_clt)) != 0 )
+    return status;
+
   /* Checking if "." entru points to itself */
   if (current_clt.info.de[0].nInode != current_inode) {
     /* printf("curr-ninode:%d\n", current_clt.info.de[0].nInode); */
@@ -78,12 +89,10 @@ static int checkDirRec (FSCKStack *stack, uint32_t dzone_start, uint8_t *inode_t
   if (current_clt.info.de[1].nInode != parent)
     inode_tbl[current_inode] |= INOD_PARENT_ERR;
 
-  if ( (status = soReadCacheCluster(phys_clt, &current_clt)) != 0 )
-    return status;
-
   for (cnt = 2; cnt < DPC; cnt++)
     {
-      if (current_clt.info.de[cnt].nInode != NULL_INODE) {
+      if ((current_clt.info.de[cnt].nInode != NULL_INODE)
+          && (current_clt.info.de[cnt].name[0] != "\0")) {
         stackIn(stack, current_clt.info.de[cnt].nInode, current_inode);
         /* printf("inode:%d\n", current_clt.info.de[cnt].nInode); */
         /* printf("name: %s\n", current_clt.info.de[cnt].name); */
